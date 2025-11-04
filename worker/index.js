@@ -464,8 +464,13 @@ Remember: View first, edit incrementally, summarize changes.`,
             }];
 
             let toolUseLoop = true;
+            let iterationCount = 0;
+            const MAX_ITERATIONS = 10; // Safety limit to prevent infinite loops
+            let firstIteration = true;
 
-          while (toolUseLoop) {
+          while (toolUseLoop && iterationCount < MAX_ITERATIONS) {
+            iterationCount++;
+
             // Call Claude API with tool support
             const response = await fetch('https://api.anthropic.com/v1/messages', {
               method: 'POST',
@@ -481,9 +486,12 @@ Remember: View first, edit incrementally, summarize changes.`,
                 system: systemPrompt,
                 messages: conversationMessages,
                 tools: [TEXT_EDITOR_TOOL],
-                tool_choice: { type: "any" }  // Force Claude to use tools instead of generating text
+                // Force tool use ONLY on first iteration, then let Claude decide when to stop
+                tool_choice: firstIteration ? { type: "any" } : { type: "auto" }
               }),
             });
+
+            firstIteration = false; // After first iteration, switch to auto mode
 
             if (!response.ok) {
               const error = await response.text();
@@ -567,6 +575,14 @@ Remember: View first, edit incrementally, summarize changes.`,
 
             // Exit loop
             toolUseLoop = false;
+          }
+
+          // Check if we hit max iterations (safety limit)
+          if (iterationCount >= MAX_ITERATIONS) {
+            await writer.write(encoder.encode(`data: ${JSON.stringify({
+              type: 'text',
+              text: `\n\n(Reached maximum iteration limit of ${MAX_ITERATIONS} edits for safety)`
+            })}\n\n`));
           }
 
           await writer.write(encoder.encode('data: [DONE]\n\n'));
