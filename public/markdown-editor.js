@@ -1,0 +1,193 @@
+/**
+ * Markdown Editor - Vanilla JavaScript
+ * No build process required
+ */
+
+class MarkdownEditor {
+  constructor() {
+    // Worker endpoint - change this to your deployed worker URL
+    this.workerEndpoint = '/api/generate';
+
+    // DOM Elements
+    this.elements = {
+      prompt: document.getElementById('markdown-prompt'),
+      generateBtn: document.getElementById('markdown-generate'),
+      stopBtn: document.getElementById('markdown-stop'),
+      clearBtn: document.getElementById('markdown-clear'),
+      textArea: document.getElementById('markdown-text'),
+      preview: document.getElementById('markdown-preview'),
+      streamingStatus: document.getElementById('markdown-streaming-status'),
+      error: document.getElementById('markdown-error'),
+    };
+
+    // State
+    this.isStreaming = false;
+    this.abortController = null;
+
+    this.init();
+  }
+
+  init() {
+    // Configure marked
+    if (typeof marked !== 'undefined') {
+      marked.setOptions({
+        breaks: true,
+        gfm: true,
+      });
+    }
+
+    // Event listeners
+    this.elements.generateBtn.addEventListener('click', () => this.generate());
+    this.elements.stopBtn.addEventListener('click', () => this.stopStreaming());
+    this.elements.clearBtn.addEventListener('click', () => this.clear());
+    this.elements.textArea.addEventListener('input', () => this.renderPreview());
+    this.elements.prompt.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') this.generate();
+    });
+
+    // Example buttons
+    document.querySelectorAll('.markdown-example').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.elements.prompt.value = btn.textContent;
+        this.generate();
+      });
+    });
+  }
+
+  async generate() {
+    const prompt = this.elements.prompt.value.trim();
+    if (!prompt || this.isStreaming) return;
+
+    this.isStreaming = true;
+    this.elements.generateBtn.disabled = true;
+    this.elements.stopBtn.classList.remove('hidden');
+    this.elements.streamingStatus.classList.remove('hidden');
+    this.elements.textArea.value = '';
+    this.elements.textArea.disabled = true;
+    this.elements.error.classList.add('hidden');
+
+    this.abortController = new AbortController();
+
+    try {
+      const response = await fetch(this.workerEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, contentType: 'markdown' }),
+        signal: this.abortController.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`API request failed: ${response.statusText}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data === '[DONE]') continue;
+
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.text) {
+                this.elements.textArea.value += parsed.text;
+                this.renderPreview();
+              }
+            } catch (e) {
+              // Skip invalid JSON
+            }
+          }
+        }
+      }
+
+    } catch (error) {
+      if (error.name !== 'AbortError') {
+        console.error('Generation error:', error);
+        this.showError(`Error: ${error.message}. Make sure the worker is deployed and ANTHROPIC_API_KEY is set.`);
+      }
+    } finally {
+      this.isStreaming = false;
+      this.elements.generateBtn.disabled = false;
+      this.elements.stopBtn.classList.add('hidden');
+      this.elements.streamingStatus.classList.add('hidden');
+      this.elements.textArea.disabled = false;
+      this.elements.prompt.value = '';
+    }
+  }
+
+  stopStreaming() {
+    if (this.abortController) {
+      this.abortController.abort();
+    }
+  }
+
+  clear() {
+    this.elements.textArea.value = '';
+    this.renderPreview();
+  }
+
+  renderPreview() {
+    const markdownText = this.elements.textArea.value;
+
+    if (!markdownText.trim()) {
+      this.elements.preview.innerHTML = '<div class="empty-state">Preview will render here as Markdown streams in...</div>';
+      return;
+    }
+
+    try {
+      // Parse markdown to HTML
+      let html = '';
+      if (typeof marked !== 'undefined') {
+        html = marked.parse(markdownText);
+      } else {
+        // Fallback if marked.js not loaded
+        html = `<pre>${this.escapeHtml(markdownText)}</pre>`;
+      }
+
+      // Sanitize HTML
+      if (typeof DOMPurify !== 'undefined') {
+        html = DOMPurify.sanitize(html);
+      }
+
+      this.elements.preview.innerHTML = html;
+    } catch (error) {
+      console.error('Render error:', error);
+      this.elements.preview.innerHTML = '<div class="error-message">Error rendering markdown</div>';
+    }
+  }
+
+  escapeHtml(text) {
+    const map = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#039;'
+    };
+    return text.replace(/[&<>"']/g, m => map[m]);
+  }
+
+  showError(message) {
+    this.elements.error.textContent = message;
+    this.elements.error.classList.remove('hidden');
+  }
+}
+
+// Initialize when DOM is ready
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => {
+    window.markdownEditor = new MarkdownEditor();
+  });
+} else {
+  window.markdownEditor = new MarkdownEditor();
+}

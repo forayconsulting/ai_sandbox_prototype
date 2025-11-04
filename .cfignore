@@ -1,0 +1,57 @@
+# Cloudflare Pages - Files to ignore during deployment
+
+# Node.js
+node_modules/
+package-lock.json
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Development files
+.env
+.env.local
+.env.*
+*.log
+
+# Build artifacts (not needed for static deployment)
+dist/
+build/
+
+# Source files (we deploy public/ only)
+src/
+worker/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Documentation
+README.md
+SERVERLESS_README.md
+LICENSE
+
+# Config files
+wrangler.toml
+package.json
+package.serverless.json
+tailwind.config.js
+vite.config.js
+postcss.config.js
+
+# Scripts
+deploy.sh
+*.sh
+
+# Backups
+*.bak
+*.tmp
+
+# Original React version
+liveCSVeditor.jsx
