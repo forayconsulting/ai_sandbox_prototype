@@ -106,7 +106,6 @@ class MarkdownEditor {
 
     this.abortController = new AbortController();
     let assistantResponse = '';
-    let isFirstChunk = true;
 
     try {
       const response = await fetch(this.workerEndpoint, {
@@ -128,7 +127,7 @@ class MarkdownEditor {
       let buffer = '';
 
       while (true) {
-        const { done, value } = await reader.read();
+        const { done, value} = await reader.read();
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
@@ -142,20 +141,40 @@ class MarkdownEditor {
 
             try {
               const parsed = JSON.parse(data);
-              if (parsed.text) {
-                assistantResponse += parsed.text;
 
-                // Clear textarea on first chunk in update mode to enable full editing
-                if (isFirstChunk && this.mode === 'update') {
-                  this.elements.textArea.value = '';
-                  isFirstChunk = false;
+              // Handle different event types
+              if (parsed.type === 'tool_use') {
+                // Claude is using a tool
+                this.updateStatus(`${parsed.command === 'view' ? 'Viewing' : 'Editing'} content...`);
+                this.highlightTextarea('editing');
+              } else if (parsed.type === 'content_update') {
+                // Content has been updated by an edit
+                this.elements.textArea.value = parsed.content;
+                this.renderPreview();
+                this.highlightTextarea('success');
+              } else if (parsed.type === 'tool_result') {
+                // Tool execution result
+                if (parsed.success) {
+                  this.updateStatus(parsed.message || 'Edit applied');
+                } else {
+                  this.showError(`Edit failed: ${parsed.message}`);
                 }
-
+              } else if (parsed.type === 'text') {
+                // Final text response from Claude (summary)
+                assistantResponse += parsed.text;
+                this.updateStatus(parsed.text);
+              } else if (parsed.text) {
+                // Legacy format support
+                assistantResponse += parsed.text;
                 this.elements.textArea.value += parsed.text;
                 this.renderPreview();
+              } else if (parsed.error) {
+                // Error from worker
+                this.showError(parsed.error);
               }
             } catch (e) {
               // Skip invalid JSON
+              console.warn('Failed to parse SSE data:', e);
             }
           }
         }
@@ -198,6 +217,22 @@ class MarkdownEditor {
     this.conversationHistory = [];
     this.renderPreview();
     this.updateButtonLabel();
+  }
+
+  updateStatus(message) {
+    this.elements.streamingStatus.textContent = message;
+  }
+
+  highlightTextarea(type) {
+    const textarea = this.elements.textArea;
+    textarea.classList.remove('highlight-editing', 'highlight-success');
+
+    if (type === 'editing') {
+      textarea.classList.add('highlight-editing');
+    } else if (type === 'success') {
+      textarea.classList.add('highlight-success');
+      setTimeout(() => textarea.classList.remove('highlight-success'), 500);
+    }
   }
 
   renderPreview() {
