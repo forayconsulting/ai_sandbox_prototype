@@ -102,6 +102,7 @@ class CSVEditor {
 
     this.abortController = new AbortController();
     let assistantResponse = '';
+    let isFirstChunk = true;
 
     try {
       const response = await fetch(this.workerEndpoint, {
@@ -139,6 +140,13 @@ class CSVEditor {
               const parsed = JSON.parse(data);
               if (parsed.text) {
                 assistantResponse += parsed.text;
+
+                // Clear textarea on first chunk in update mode to enable full editing
+                if (isFirstChunk && this.mode === 'update') {
+                  this.elements.textArea.value = '';
+                  isFirstChunk = false;
+                }
+
                 this.elements.textArea.value += parsed.text;
                 this.parseAndRender();
               }
