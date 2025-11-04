@@ -94,11 +94,29 @@ function executeEditorCommand(command, content) {
         };
       }
 
+      // Find the position of the change for visual feedback
+      const startPos = content.indexOf(old_str);
+      const endPos = startPos + old_str.length;
+
+      // Calculate line number
+      const beforeEdit = content.substring(0, startPos);
+      const lineNumber = (beforeEdit.match(/\n/g) || []).length + 1;
+
       const newContent = content.replace(old_str, new_str || '');
       return {
         success: true,
         content: newContent,
-        message: `Successfully replaced 1 occurrence`
+        message: `Successfully replaced 1 occurrence`,
+        edit_metadata: {
+          type: 'replace',
+          old_text: old_str,
+          new_text: new_str || '',
+          start_pos: startPos,
+          end_pos: endPos,
+          line_number: lineNumber,
+          chars_removed: old_str.length,
+          chars_added: (new_str || '').length
+        }
       };
 
     case 'insert':
@@ -426,17 +444,10 @@ Remember: View first, edit incrementally, summarize changes.`,
             }
 
             // Create a FRESH conversation for editing (no history!)
-            // This tells Claude "you're an editor with tools" not "continue generating"
+            // Don't provide content upfront - let Claude view it using tools
             let conversationMessages = [{
               role: 'user',
-              content: [{
-                type: 'text',
-                text: `Here is the content to edit:\n\n${currentContent}`,
-                cache_control: { type: 'ephemeral' }  // Cache for cost savings
-              }, {
-                type: 'text',
-                text: `\n\nEdit instruction: ${instruction}`
-              }]
+              content: instruction
             }];
 
             let toolUseLoop = true;
@@ -457,6 +468,7 @@ Remember: View first, edit incrementally, summarize changes.`,
                 system: systemPrompt,
                 messages: conversationMessages,
                 tools: [TEXT_EDITOR_TOOL],
+                tool_choice: { type: "any" }  // Force Claude to use tools instead of generating text
               }),
             });
 
@@ -494,10 +506,11 @@ Remember: View first, edit incrementally, summarize changes.`,
                 if (toolResult.success && toolResult.content !== undefined) {
                   currentContent = toolResult.content;
 
-                  // Send updated content to frontend
+                  // Send updated content to frontend with edit metadata for visualization
                   await writer.write(encoder.encode(`data: ${JSON.stringify({
                     type: 'content_update',
-                    content: currentContent
+                    content: currentContent,
+                    edit: toolResult.edit_metadata  // Include metadata for visual feedback
                   })}\n\n`));
                 }
 

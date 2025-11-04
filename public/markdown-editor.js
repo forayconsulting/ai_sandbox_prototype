@@ -148,10 +148,8 @@ class MarkdownEditor {
                 this.updateStatus(`${parsed.command === 'view' ? 'Viewing' : 'Editing'} content...`);
                 this.highlightTextarea('editing');
               } else if (parsed.type === 'content_update') {
-                // Content has been updated by an edit
-                this.elements.textArea.value = parsed.content;
-                this.renderPreview();
-                this.highlightTextarea('success');
+                // Content has been updated by an edit - visualize the change
+                await this.visualizeEdit(parsed.content, parsed.edit);
               } else if (parsed.type === 'tool_result') {
                 // Tool execution result
                 if (parsed.success) {
@@ -233,6 +231,104 @@ class MarkdownEditor {
       textarea.classList.add('highlight-success');
       setTimeout(() => textarea.classList.remove('highlight-success'), 500);
     }
+  }
+
+  /**
+   * Visualize an edit with smooth animations
+   * Shows WHERE and WHAT changed in the textarea
+   */
+  async visualizeEdit(newContent, editMetadata) {
+    const textarea = this.elements.textArea;
+
+    if (!editMetadata) {
+      // No metadata - just update content
+      textarea.value = newContent;
+      this.renderPreview();
+      this.highlightTextarea('success');
+      return;
+    }
+
+    // STEP 1: Highlight the old text that will be replaced
+    textarea.setSelectionRange(editMetadata.start_pos, editMetadata.end_pos);
+    textarea.focus();
+
+    // Scroll to the selection
+    this.scrollToSelection(textarea, editMetadata.start_pos);
+
+    // Add "deleting" highlight effect
+    textarea.classList.remove('highlight-editing', 'highlight-success');
+    textarea.classList.add('highlight-deleting');
+    await this.sleep(800); // Let user see what's being deleted
+
+    // STEP 2: Apply the edit with animation
+    textarea.classList.remove('highlight-deleting');
+
+    // For small edits, show character-by-character typing
+    if (editMetadata.new_text.length > 0 && editMetadata.new_text.length < 50) {
+      textarea.classList.add('highlight-inserting');
+      await this.animateTyping(textarea, newContent, editMetadata);
+      textarea.classList.remove('highlight-inserting');
+    } else {
+      // For large edits or deletions, just replace instantly
+      textarea.value = newContent;
+    }
+
+    // STEP 3: Flash success
+    textarea.classList.add('highlight-success');
+    await this.sleep(500);
+    textarea.classList.remove('highlight-success');
+
+    // Update preview
+    this.renderPreview();
+  }
+
+  /**
+   * Scroll textarea to show the edited position
+   */
+  scrollToSelection(textarea, charPosition) {
+    // Get the text before the edit position
+    const textBefore = textarea.value.substring(0, charPosition);
+    const lines = textBefore.split('\n');
+    const lineNumber = lines.length;
+
+    // Estimate scroll position (approximate)
+    const lineHeight = 20; // pixels per line (match CSS)
+    const targetScroll = (lineNumber - 5) * lineHeight; // Center in view
+
+    textarea.scrollTop = Math.max(0, targetScroll);
+  }
+
+  /**
+   * Animate typing effect for small edits
+   */
+  async animateTyping(textarea, finalContent, editMetadata) {
+    const oldContent = textarea.value;
+    const newText = editMetadata.new_text;
+
+    // Build content incrementally
+    for (let i = 0; i <= newText.length; i++) {
+      const partialNew = newText.substring(0, i);
+      const before = oldContent.substring(0, editMetadata.start_pos);
+      const after = oldContent.substring(editMetadata.end_pos);
+
+      textarea.value = before + partialNew + after;
+
+      // Update cursor position
+      const cursorPos = editMetadata.start_pos + i;
+      textarea.setSelectionRange(cursorPos, cursorPos);
+
+      await this.sleep(30); // 30ms per character
+    }
+
+    // Set final content to be sure
+    textarea.value = finalContent;
+  }
+
+  /**
+   * Sleep utility for animations
+   */
+  sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   renderPreview() {
