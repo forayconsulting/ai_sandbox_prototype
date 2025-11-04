@@ -394,7 +394,10 @@ Remember: View first, edit incrementally, summarize changes.`,
         // UPDATE MODE: Use tool use loop for incremental editing
         (async () => {
           try {
-            let currentContent = claudeMessages.find(m => m.role === 'user' && m.content)?.content || '';
+            // Find the LAST user message (most recent) which contains the actual content
+            const userMessages = claudeMessages.filter(m => m.role === 'user' && m.content);
+            let currentContent = userMessages[userMessages.length - 1]?.content || '';
+
             if (typeof currentContent === 'object' && Array.isArray(currentContent)) {
               // Extract text from content array
               currentContent = currentContent
