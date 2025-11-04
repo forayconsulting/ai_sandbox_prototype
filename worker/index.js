@@ -396,20 +396,49 @@ Remember: View first, edit incrementally, summarize changes.`,
           try {
             // Find the LAST user message (most recent) which contains the actual content
             const userMessages = claudeMessages.filter(m => m.role === 'user' && m.content);
-            let currentContent = userMessages[userMessages.length - 1]?.content || '';
+            const lastUserMessage = userMessages[userMessages.length - 1]?.content || '';
 
-            if (typeof currentContent === 'object' && Array.isArray(currentContent)) {
-              // Extract text from content array
-              currentContent = currentContent
+            // Extract the actual content and instruction from the last message
+            let currentContent = '';
+            let instruction = '';
+
+            if (typeof lastUserMessage === 'string') {
+              const parts = lastUserMessage.split('\n\nInstruction: ');
+              if (parts.length === 2) {
+                currentContent = parts[0].replace('Current content:\n', '').trim();
+                instruction = parts[1].trim();
+              } else {
+                // Fallback if format is different
+                currentContent = lastUserMessage;
+                instruction = 'Edit as requested';
+              }
+            } else if (Array.isArray(lastUserMessage)) {
+              // Extract from content array format
+              const texts = lastUserMessage
                 .filter(c => c.type === 'text')
                 .map(c => c.text)
-                .join('\n')
-                .replace(/^Current content:\n/, '')
-                .split('\nInstruction:')[0]
-                .trim();
+                .join('\n');
+              const parts = texts.split('\n\nInstruction: ');
+              if (parts.length === 2) {
+                currentContent = parts[0].replace('Current content:\n', '').trim();
+                instruction = parts[1].trim();
+              }
             }
 
-            let conversationMessages = [...claudeMessages];
+            // Create a FRESH conversation for editing (no history!)
+            // This tells Claude "you're an editor with tools" not "continue generating"
+            let conversationMessages = [{
+              role: 'user',
+              content: [{
+                type: 'text',
+                text: `Here is the content to edit:\n\n${currentContent}`,
+                cache_control: { type: 'ephemeral' }  // Cache for cost savings
+              }, {
+                type: 'text',
+                text: `\n\nEdit instruction: ${instruction}`
+              }]
+            }];
+
             let toolUseLoop = true;
 
           while (toolUseLoop) {
