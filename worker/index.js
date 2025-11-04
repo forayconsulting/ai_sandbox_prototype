@@ -7,6 +7,30 @@
 
 export default {
   async fetch(request, env) {
+    const url = new URL(request.url);
+
+    // Health check endpoint
+    if (url.pathname === '/' || url.pathname === '/health') {
+      return new Response(JSON.stringify({
+        status: 'ok',
+        message: 'AI Sandbox Worker is running',
+        model: env.CLAUDE_MODEL || 'claude-haiku-4-5-20251001',
+        endpoint: '/api/generate',
+        timestamp: new Date().toISOString()
+      }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        }
+      });
+    }
+
+    // Only handle API routes
+    if (!url.pathname.startsWith('/api/')) {
+      return new Response('Not found', { status: 404 });
+    }
+
     // Handle CORS preflight
     if (request.method === 'OPTIONS') {
       return new Response(null, {
@@ -18,7 +42,7 @@ export default {
       });
     }
 
-    // Only allow POST requests
+    // Only allow POST requests for API
     if (request.method !== 'POST') {
       return new Response('Method not allowed', { status: 405 });
     }
@@ -30,6 +54,15 @@ export default {
         return new Response(JSON.stringify({ error: 'Prompt is required' }), {
           status: 400,
           headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Check if API key is available
+      if (!env.ANTHROPIC_API_KEY) {
+        console.error('ANTHROPIC_API_KEY is not set');
+        return new Response(JSON.stringify({ error: 'API key not configured' }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
         });
       }
 
@@ -69,7 +102,7 @@ Key guidelines:
           'x-api-key': env.ANTHROPIC_API_KEY,
         },
         body: JSON.stringify({
-          model: env.CLAUDE_MODEL || 'claude-3-5-sonnet-20241022',
+          model: env.CLAUDE_MODEL || 'claude-haiku-4-5-20251001',
           max_tokens: contentType === 'markdown' ? 8192 : 4096,
           temperature: 0.7,
           system: systemPrompt,
@@ -85,10 +118,17 @@ Key guidelines:
 
       if (!response.ok) {
         const error = await response.text();
-        console.error('Claude API error:', error);
-        return new Response(JSON.stringify({ error: 'API request failed' }), {
+        console.error('Claude API error:', response.status, error);
+        return new Response(JSON.stringify({
+          error: 'API request failed',
           status: response.status,
-          headers: { 'Content-Type': 'application/json' },
+          details: error.substring(0, 200)
+        }), {
+          status: response.status,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+          },
         });
       }
 

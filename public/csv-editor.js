@@ -6,7 +6,7 @@
 class CSVEditor {
   constructor() {
     // Worker endpoint - change this to your deployed worker URL
-    this.workerEndpoint = '/api/generate';
+    this.workerEndpoint = 'https://ai-sandbox-worker.foray-consulting.workers.dev/api/generate';
 
     // DOM Elements
     this.elements = {
