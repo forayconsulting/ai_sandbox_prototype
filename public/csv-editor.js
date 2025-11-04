@@ -231,41 +231,25 @@ class CSVEditor {
       return;
     }
 
-    // STEP 1: Highlight the old text that will be replaced
+    // STEP 1: Scroll to and select the text being edited
     textarea.setSelectionRange(editMetadata.start_pos, editMetadata.end_pos);
     textarea.focus();
 
     // Scroll to the selection
     this.scrollToSelection(textarea, editMetadata.start_pos);
 
-    // Add "deleting" highlight effect
-    textarea.classList.remove('highlight-editing', 'highlight-success');
-    textarea.classList.add('highlight-deleting');
-    await this.sleep(800); // Let user see what's being deleted
-
-    // STEP 2: Apply the edit with animation
-    textarea.classList.remove('highlight-deleting');
-
+    // STEP 2: Apply the edit - just do it directly without color effects
     // For small edits, show character-by-character typing
     if (editMetadata.new_text.length > 0 && editMetadata.new_text.length < 50) {
-      textarea.classList.add('highlight-inserting');
       await this.animateTyping(textarea, newContent, editMetadata);
-      textarea.classList.remove('highlight-inserting');
     } else {
       // For large edits or deletions, just replace instantly
+      await this.sleep(300); // Small pause to let user see selection
       textarea.value = newContent;
     }
 
-    // STEP 3: Flash success
-    textarea.classList.add('highlight-success');
-    await this.sleep(500);
-    textarea.classList.remove('highlight-success');
-
     // Update table view
     this.parseAndRender();
-
-    // Highlight the changed row in the table
-    this.highlightChangedRow(editMetadata.line_number);
   }
 
   /**

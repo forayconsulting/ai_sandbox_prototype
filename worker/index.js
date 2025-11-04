@@ -325,10 +325,23 @@ Remember: View first, edit incrementally, summarize changes.`,
       const systemPrompt = systemPrompts[contentType] || systemPrompts.csv;
 
       // Detect if we're in update mode (has existing content)
-      const firstMessage = claudeMessages[0];
-      const hasExistingContent = firstMessage?.content &&
-        (typeof firstMessage.content === 'string' ? firstMessage.content.includes('Current content:') :
-         (Array.isArray(firstMessage.content) && firstMessage.content.some(c => c.text?.includes('Current content:'))));
+      // Check the LAST user message, not the first (first is always the initial prompt)
+      const userMessages = claudeMessages.filter(m => m.role === 'user');
+      const lastMessage = userMessages[userMessages.length - 1];
+      const hasExistingContent = lastMessage?.content &&
+        (typeof lastMessage.content === 'string' ? lastMessage.content.includes('Current content:') :
+         (Array.isArray(lastMessage.content) && lastMessage.content.some(c => c.text?.includes('Current content:'))));
+
+      console.log('Mode detection:', {
+        hasExistingContent,
+        messageCount: claudeMessages.length,
+        userMessageCount: userMessages.length,
+        lastMessageType: typeof lastMessage?.content,
+        isArray: Array.isArray(lastMessage?.content),
+        contentPreview: typeof lastMessage?.content === 'string' ?
+          lastMessage.content.substring(0, 100) :
+          JSON.stringify(lastMessage?.content).substring(0, 100)
+      });
 
       // Stream the response back to the client
       const { readable, writable } = new TransformStream();
