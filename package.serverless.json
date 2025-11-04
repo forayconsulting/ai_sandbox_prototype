@@ -1,0 +1,31 @@
+{
+  "name": "ai-sandbox-serverless",
+  "version": "2.0.0",
+  "description": "Serverless AI Sandbox - No build process, runs on Cloudflare Workers",
+  "type": "module",
+  "scripts": {
+    "dev:worker": "wrangler dev worker/index.js --port 8787",
+    "dev:static": "npx serve public -p 8000",
+    "deploy:worker": "wrangler deploy worker/index.js",
+    "deploy:pages": "wrangler pages deploy public --project-name=ai-sandbox",
+    "deploy": "npm run deploy:worker && npm run deploy:pages",
+    "logs": "wrangler tail",
+    "secret:set": "wrangler secret put ANTHROPIC_API_KEY"
+  },
+  "devDependencies": {
+    "wrangler": "^3.22.0"
+  },
+  "keywords": [
+    "ai",
+    "claude",
+    "anthropic",
+    "cloudflare-workers",
+    "serverless",
+    "csv",
+    "markdown",
+    "collaborative-editing",
+    "edge-computing"
+  ],
+  "author": "",
+  "license": "MIT"
+}

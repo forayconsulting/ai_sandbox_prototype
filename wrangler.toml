@@ -1,0 +1,28 @@
+# Cloudflare Workers Configuration
+
+name = "ai-sandbox-worker"
+main = "worker/index.js"
+compatibility_date = "2024-01-01"
+
+# Environment variables (set these in Cloudflare dashboard or use wrangler secret)
+# wrangler secret put ANTHROPIC_API_KEY
+
+# Routes for the worker
+# Uncomment and configure for your domain
+# routes = [
+#   { pattern = "yourdomain.com/api/*", zone_name = "yourdomain.com" }
+# ]
+
+# For development with `wrangler dev`
+[env.dev]
+name = "ai-sandbox-worker-dev"
+
+# For production deployment
+[env.production]
+name = "ai-sandbox-worker"
+route = { pattern = "*/api/*" }
+
+# Optional: KV namespace for rate limiting or caching
+# [[kv_namespaces]]
+# binding = "AI_SANDBOX_KV"
+# id = "your-kv-namespace-id"

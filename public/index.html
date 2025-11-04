@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Sandbox - Live Collaborative Editor</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <div class="header-content">
+      <div class="header-left">
+        <h1>AI Sandbox</h1>
+        <p class="subtitle">Live collaborative editing with Claude API</p>
+      </div>
+      <div class="header-right">
+        <span class="badge">Powered by Claude 3.5 Sonnet</span>
+      </div>
+    </div>
+    <nav class="tabs">
+      <button class="tab active" data-tab="csv">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+          <line x1="9" y1="3" x2="9" y2="21"></line>
+          <line x1="15" y1="3" x2="15" y2="21"></line>
+          <line x1="3" y1="9" x2="21" y2="9"></line>
+          <line x1="3" y1="15" x2="21" y2="15"></line>
+        </svg>
+        CSV Editor
+      </button>
+      <button class="tab" data-tab="markdown">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+          <polyline points="14 2 14 8 20 8"></polyline>
+          <line x1="16" y1="13" x2="8" y2="13"></line>
+          <line x1="16" y1="17" x2="8" y2="17"></line>
+          <polyline points="10 9 9 9 8 9"></polyline>
+        </svg>
+        Markdown Editor
+      </button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- CSV Editor Tab -->
+    <div id="csv-editor" class="editor-container active">
+      <div class="space-y">
+        <h2 class="editor-title">Live Collaborative CSV Editor</h2>
+        <p class="editor-description">Real-time AI-powered CSV generation with live table rendering and bidirectional editing</p>
+      </div>
+
+      <div id="csv-error" class="error-message hidden"></div>
+
+      <div class="prompt-section">
+        <div class="prompt-input-group">
+          <input
+            type="text"
+            id="csv-prompt"
+            placeholder="Try: 'Generate a financial tracker spreadsheet' or 'Create an inventory list'"
+            class="prompt-input"
+          />
+          <button id="csv-generate" class="btn btn-primary">Generate</button>
+          <button id="csv-stop" class="btn btn-danger hidden">Stop</button>
+        </div>
+        <div id="csv-streaming-status" class="streaming-status hidden">
+          Claude AI is generating CSV data...
+        </div>
+      </div>
+
+      <div class="split-view">
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Raw CSV (Source of Truth)</h3>
+            <button id="csv-clear" class="btn btn-outline btn-sm">Clear</button>
+          </div>
+          <textarea id="csv-text" class="code-textarea" placeholder="CSV text will stream here from Claude API..."></textarea>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Live Table View</h3>
+            <button id="csv-add-row" class="btn btn-outline btn-sm">Add Row</button>
+          </div>
+          <div id="csv-table-container" class="table-container">
+            <div class="empty-state">Table will render here as CSV streams in...</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="info-box">
+        <h4>How it works:</h4>
+        <ul>
+          <li><strong>Generate:</strong> Enter a prompt and watch Claude stream CSV data in real-time</li>
+          <li><strong>Edit cells:</strong> Click any cell in the table to edit it (syncs back to raw CSV)</li>
+          <li><strong>Add rows:</strong> Click "Add Row" to append empty rows</li>
+          <li><strong>Manual edit:</strong> Edit the raw CSV directly to update the table</li>
+        </ul>
+      </div>
+
+      <div class="examples-section">
+        <h4>Try these prompts:</h4>
+        <div class="example-buttons">
+          <button class="btn btn-outline btn-sm csv-example">Generate a financial tracker spreadsheet with 10 rows</button>
+          <button class="btn btn-outline btn-sm csv-example">Create an inventory list for a small electronics store</button>
+          <button class="btn btn-outline btn-sm csv-example">Make a contact list with 8 team members</button>
+          <button class="btn btn-outline btn-sm csv-example">Build a product catalog with prices and descriptions</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Markdown Editor Tab -->
+    <div id="markdown-editor" class="editor-container">
+      <div class="space-y">
+        <h2 class="editor-title">Live Collaborative Markdown Editor</h2>
+        <p class="editor-description">Real-time AI-powered Markdown generation with live HTML preview</p>
+      </div>
+
+      <div id="markdown-error" class="error-message hidden"></div>
+
+      <div class="prompt-section">
+        <div class="prompt-input-group">
+          <input
+            type="text"
+            id="markdown-prompt"
+            placeholder="Try: 'Write a technical blog post about React hooks' or 'Create a product launch announcement'"
+            class="prompt-input"
+          />
+          <button id="markdown-generate" class="btn btn-primary">Generate</button>
+          <button id="markdown-stop" class="btn btn-danger hidden">Stop</button>
+        </div>
+        <div id="markdown-streaming-status" class="streaming-status hidden">
+          Claude AI is generating Markdown content...
+        </div>
+      </div>
+
+      <div class="split-view">
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Raw Markdown (Source)</h3>
+            <button id="markdown-clear" class="btn btn-outline btn-sm">Clear</button>
+          </div>
+          <textarea id="markdown-text" class="code-textarea" placeholder="Markdown text will stream here from Claude API..."></textarea>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Live Preview</h3>
+          </div>
+          <div id="markdown-preview" class="markdown-preview">
+            <div class="empty-state">Preview will render here as Markdown streams in...</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="info-box">
+        <h4>How it works:</h4>
+        <ul>
+          <li><strong>Generate:</strong> Enter a prompt and watch Claude stream Markdown content in real-time</li>
+          <li><strong>Live preview:</strong> See your Markdown rendered as formatted HTML instantly</li>
+          <li><strong>Manual edit:</strong> Edit the raw Markdown directly to update the preview</li>
+          <li><strong>Full Markdown support:</strong> Headers, lists, code blocks, tables, links, images, and more</li>
+        </ul>
+      </div>
+
+      <div class="examples-section">
+        <h4>Try these prompts:</h4>
+        <div class="example-buttons">
+          <button class="btn btn-outline btn-sm markdown-example">Write a technical blog post about React hooks</button>
+          <button class="btn btn-outline btn-sm markdown-example">Create a product launch announcement for a SaaS app</button>
+          <button class="btn btn-outline btn-sm markdown-example">Generate a comprehensive README for a Python project</button>
+          <button class="btn btn-outline btn-sm markdown-example">Write a tutorial on API design best practices</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <p>AI Sandbox - Demonstrating real-time human-AI collaboration patterns</p>
+    <p>Built with Vanilla JS + Cloudflare Workers + Anthropic Claude API</p>
+  </footer>
+
+  <!-- Include marked.js for Markdown parsing -->
+  <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+  <!-- Include DOMPurify for HTML sanitization -->
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.8/dist/purify.min.js"></script>
+
+  <!-- App Scripts -->
+  <script src="csv-editor.js"></script>
+  <script src="markdown-editor.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
