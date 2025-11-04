@@ -105,10 +105,10 @@ function executeEditorCommand(command, content) {
       const { insert_line } = command;
       const insertContent = command.new_str || '';
 
-      if (!insert_line || insert_line < 0 || insert_line > lines.length) {
+      if (insert_line === undefined || insert_line === null || insert_line < 0 || insert_line > lines.length) {
         return {
           success: false,
-          error: `Invalid insert_line: ${insert_line}. Must be between 1 and ${lines.length}`
+          error: `Invalid insert_line: ${insert_line}. Must be between 0 and ${lines.length} (0 = prepend, ${lines.length} = append)`
         };
       }
 
@@ -116,7 +116,7 @@ function executeEditorCommand(command, content) {
       return {
         success: true,
         content: lines.join('\n'),
-        message: `Inserted content after line ${insert_line}`
+        message: `Inserted content at line ${insert_line === 0 ? 'beginning' : `after line ${insert_line}`}`
       };
 
     case 'delete_range':
@@ -306,28 +306,108 @@ Remember: View first, edit incrementally, summarize changes.`,
 
       const systemPrompt = systemPrompts[contentType] || systemPrompts.csv;
 
+      // Detect if we're in update mode (has existing content)
+      const firstMessage = claudeMessages[0];
+      const hasExistingContent = firstMessage?.content &&
+        (typeof firstMessage.content === 'string' ? firstMessage.content.includes('Current content:') :
+         (Array.isArray(firstMessage.content) && firstMessage.content.some(c => c.text?.includes('Current content:'))));
+
       // Stream the response back to the client
       const { readable, writable } = new TransformStream();
       const writer = writable.getWriter();
       const encoder = new TextEncoder();
 
-      // Tool use loop - handles multiple tool calls
-      (async () => {
-        try {
-          let currentContent = claudeMessages.find(m => m.role === 'user' && m.content)?.content || '';
-          if (typeof currentContent === 'object' && Array.isArray(currentContent)) {
-            // Extract text from content array
-            currentContent = currentContent
-              .filter(c => c.type === 'text')
-              .map(c => c.text)
-              .join('\n')
-              .replace(/^Current content:\n/, '')
-              .split('\nInstruction:')[0]
-              .trim();
-          }
+      // Use different strategies based on mode
+      if (!hasExistingContent) {
+        // GENERATE MODE: Stream text directly without tools
+        (async () => {
+          try {
+            const response = await fetch('https://api.anthropic.com/v1/messages', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'anthropic-version': '2023-06-01',
+                'x-api-key': env.ANTHROPIC_API_KEY,
+              },
+              body: JSON.stringify({
+                model: env.CLAUDE_MODEL || 'claude-haiku-4-5-20251001',
+                max_tokens: contentType === 'markdown' ? 8192 : 4096,
+                temperature: 0.7,
+                system: contentType === 'csv'
+                  ? 'You are a helpful AI assistant that generates CSV data. Generate valid CSV with headers in the first row. Use commas to separate values. Wrap values in quotes if they contain commas. Be creative and generate realistic sample data. Only output the CSV data, no explanations.'
+                  : 'You are a helpful AI assistant that generates Markdown content. Use proper Markdown syntax. Only output the Markdown content, no explanations.',
+                messages: claudeMessages,
+                stream: true,
+              }),
+            });
 
-          let conversationMessages = [...claudeMessages];
-          let toolUseLoop = true;
+            if (!response.ok) {
+              const error = await response.text();
+              await writer.write(encoder.encode(`data: ${JSON.stringify({
+                error: 'API request failed',
+                details: error.substring(0, 200)
+              })}\n\n`));
+              await writer.close();
+              return;
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split('\n');
+              buffer = lines.pop() || '';
+
+              for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                  const data = line.slice(6);
+                  if (data === '[DONE]') continue;
+
+                  try {
+                    const parsed = JSON.parse(data);
+                    if (parsed.type === 'content_block_delta' && parsed.delta?.type === 'text_delta') {
+                      await writer.write(encoder.encode(`data: ${JSON.stringify({
+                        text: parsed.delta.text
+                      })}\n\n`));
+                    }
+                  } catch (e) {
+                    // Skip invalid JSON
+                  }
+                }
+              }
+            }
+
+            await writer.write(encoder.encode('data: [DONE]\n\n'));
+            await writer.close();
+          } catch (error) {
+            console.error('Streaming error:', error);
+            await writer.write(encoder.encode(`data: ${JSON.stringify({ error: error.message })}\n\n`));
+            await writer.abort(error);
+          }
+        })();
+      } else {
+        // UPDATE MODE: Use tool use loop for incremental editing
+        (async () => {
+          try {
+            let currentContent = claudeMessages.find(m => m.role === 'user' && m.content)?.content || '';
+            if (typeof currentContent === 'object' && Array.isArray(currentContent)) {
+              // Extract text from content array
+              currentContent = currentContent
+                .filter(c => c.type === 'text')
+                .map(c => c.text)
+                .join('\n')
+                .replace(/^Current content:\n/, '')
+                .split('\nInstruction:')[0]
+                .trim();
+            }
+
+            let conversationMessages = [...claudeMessages];
+            let toolUseLoop = true;
 
           while (toolUseLoop) {
             // Call Claude API with tool support
@@ -441,6 +521,7 @@ Remember: View first, edit incrementally, summarize changes.`,
           await writer.abort(error);
         }
       })();
+      }
 
       return new Response(readable, {
         headers: {
