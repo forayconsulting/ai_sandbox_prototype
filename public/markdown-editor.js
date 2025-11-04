@@ -23,8 +23,20 @@ class MarkdownEditor {
     // State
     this.isStreaming = false;
     this.abortController = null;
+    this.conversationHistory = []; // Full conversation for iterative updates
 
     this.init();
+  }
+
+  // Get current mode based on content
+  get mode() {
+    return this.elements.textArea.value.trim() ? 'update' : 'generate';
+  }
+
+  // Update button label based on mode
+  updateButtonLabel() {
+    const label = this.mode === 'generate' ? 'Generate' : 'Update';
+    this.elements.generateBtn.textContent = label;
   }
 
   init() {
@@ -40,7 +52,10 @@ class MarkdownEditor {
     this.elements.generateBtn.addEventListener('click', () => this.generate());
     this.elements.stopBtn.addEventListener('click', () => this.stopStreaming());
     this.elements.clearBtn.addEventListener('click', () => this.clear());
-    this.elements.textArea.addEventListener('input', () => this.renderPreview());
+    this.elements.textArea.addEventListener('input', () => {
+      this.renderPreview();
+      this.updateButtonLabel();
+    });
     this.elements.prompt.addEventListener('keypress', (e) => {
       if (e.key === 'Enter') this.generate();
     });
@@ -52,6 +67,9 @@ class MarkdownEditor {
         this.generate();
       });
     });
+
+    // Initialize button label
+    this.updateButtonLabel();
   }
 
   async generate() {
@@ -62,17 +80,41 @@ class MarkdownEditor {
     this.elements.generateBtn.disabled = true;
     this.elements.stopBtn.classList.remove('hidden');
     this.elements.streamingStatus.classList.remove('hidden');
-    this.elements.textArea.value = '';
     this.elements.textArea.disabled = true;
     this.elements.error.classList.add('hidden');
 
+    // Store current content for context
+    const currentContent = this.elements.textArea.value.trim();
+
+    // Build user message with context
+    let userMessage;
+    if (currentContent && this.mode === 'update') {
+      // Update mode: include current content
+      userMessage = `Current content:\n${currentContent}\n\nInstruction: ${prompt}`;
+    } else {
+      // Generate mode: just the prompt
+      userMessage = prompt;
+      // Clear textarea for new generation
+      this.elements.textArea.value = '';
+    }
+
+    // Add user message to conversation history
+    this.conversationHistory.push({
+      role: 'user',
+      content: userMessage
+    });
+
     this.abortController = new AbortController();
+    let assistantResponse = '';
 
     try {
       const response = await fetch(this.workerEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, contentType: 'markdown' }),
+        body: JSON.stringify({
+          messages: this.conversationHistory,
+          contentType: 'markdown'
+        }),
         signal: this.abortController.signal,
       });
 
@@ -100,6 +142,7 @@ class MarkdownEditor {
             try {
               const parsed = JSON.parse(data);
               if (parsed.text) {
+                assistantResponse += parsed.text;
                 this.elements.textArea.value += parsed.text;
                 this.renderPreview();
               }
@@ -110,11 +153,21 @@ class MarkdownEditor {
         }
       }
 
+      // Add assistant response to conversation history
+      if (assistantResponse) {
+        this.conversationHistory.push({
+          role: 'assistant',
+          content: assistantResponse
+        });
+      }
+
     } catch (error) {
       if (error.name !== 'AbortError') {
         console.error('Generation error:', error);
         this.showError(`Error: ${error.message}. Make sure the worker is deployed and ANTHROPIC_API_KEY is set.`);
       }
+      // Remove the user message from history if request failed
+      this.conversationHistory.pop();
     } finally {
       this.isStreaming = false;
       this.elements.generateBtn.disabled = false;
@@ -122,6 +175,7 @@ class MarkdownEditor {
       this.elements.streamingStatus.classList.add('hidden');
       this.elements.textArea.disabled = false;
       this.elements.prompt.value = '';
+      this.updateButtonLabel();
     }
   }
 
@@ -133,7 +187,9 @@ class MarkdownEditor {
 
   clear() {
     this.elements.textArea.value = '';
+    this.conversationHistory = [];
     this.renderPreview();
+    this.updateButtonLabel();
   }
 
   renderPreview() {

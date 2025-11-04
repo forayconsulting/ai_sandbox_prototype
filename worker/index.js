@@ -48,12 +48,20 @@ export default {
     }
 
     try {
-      const { prompt, contentType = 'csv' } = await request.json();
+      const { prompt, messages, contentType = 'csv' } = await request.json();
 
-      if (!prompt) {
-        return new Response(JSON.stringify({ error: 'Prompt is required' }), {
+      // Support both single prompt (legacy) and messages array (new)
+      let claudeMessages;
+      if (messages && Array.isArray(messages)) {
+        // New format: use messages directly
+        claudeMessages = messages;
+      } else if (prompt) {
+        // Legacy format: convert to messages array
+        claudeMessages = [{ role: 'user', content: prompt }];
+      } else {
+        return new Response(JSON.stringify({ error: 'Either prompt or messages is required' }), {
           status: 400,
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
         });
       }
 
@@ -68,25 +76,39 @@ export default {
 
       // System prompts for different content types
       const systemPrompts = {
-        csv: `You are a helpful AI assistant that generates CSV data based on user requests.
+        csv: `You are a helpful AI assistant that generates and edits CSV data based on user requests.
+
+Context awareness:
+- If the user provides existing CSV content, you are EDITING that data
+- If no existing content is provided, you are GENERATING new data
+- Maintain context from the conversation to understand iterative refinements
 
 Key guidelines:
-- Generate valid CSV format with headers in the first row
+- Generate or edit valid CSV format with headers in the first row
 - Use commas to separate values
 - Wrap values in quotes if they contain commas, quotes, or newlines
 - Escape internal quotes by doubling them ("")
 - Be creative and generate realistic sample data
 - Include appropriate columns based on the user's request
 - Generate at least 5-10 rows of data unless specified otherwise
+- When editing, intelligently modify the existing data based on instructions
+- Always return the COMPLETE CSV (not just changes)
 - Only output the CSV data, no explanations or markdown code blocks`,
 
-        markdown: `You are a helpful AI assistant that generates well-formatted Markdown content based on user requests.
+        markdown: `You are a helpful AI assistant that generates and edits Markdown content based on user requests.
+
+Context awareness:
+- If the user provides existing Markdown content, you are EDITING that content
+- If no existing content is provided, you are GENERATING new content
+- Maintain context from the conversation to understand iterative refinements
 
 Key guidelines:
-- Generate valid Markdown syntax
+- Generate or edit valid Markdown syntax
 - Use appropriate headers (# ## ###) for structure
 - Format lists, code blocks, tables, and other elements properly
 - Be creative and generate detailed, well-organized content
+- When editing, intelligently modify the existing content based on instructions
+- Always return the COMPLETE Markdown (not just changes)
 - Only output the Markdown content, no explanations
 - Use proper Markdown syntax for emphasis, links, images, etc.`,
       };
@@ -106,12 +128,7 @@ Key guidelines:
           max_tokens: contentType === 'markdown' ? 8192 : 4096,
           temperature: 0.7,
           system: systemPrompt,
-          messages: [
-            {
-              role: 'user',
-              content: prompt,
-            },
-          ],
+          messages: claudeMessages,
           stream: true,
         }),
       });
