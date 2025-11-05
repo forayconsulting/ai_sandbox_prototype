@@ -168,6 +168,24 @@
     </div>
   </main>
 
+  <!-- Clarification Modal (shared between editors) -->
+  <div id="clarification-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>CLARIFICATION NEEDED</h2>
+      </div>
+      <div class="modal-body">
+        <p class="clarification-question"></p>
+        <p class="clarification-context"></p>
+        <textarea class="clarification-input" placeholder="Enter your answer..." rows="4"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-submit">SUBMIT</button>
+        <button class="btn-cancel">CANCEL</button>
+      </div>
+    </div>
+  </div>
+
   <footer>
     <p>innovation_sandbox</p>
     <p>Vanilla JS + Cloudflare Workers + Anthropic Claude API</p>

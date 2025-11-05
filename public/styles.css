@@ -727,3 +727,146 @@ footer p:first-child {
 ::-webkit-scrollbar-thumb:hover {
   background: #2a2a2a;
 }
+
+/* Clarification Modal */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(10, 10, 10, 0.95);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.modal-content {
+  background: #fafafa;
+  border: 3px solid #0a0a0a;
+  box-shadow: 8px 8px 0 0 #0a0a0a;
+  max-width: 550px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  animation: slideIn 0.3s ease;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.modal-header {
+  background: #0a0a0a;
+  color: #fafafa;
+  padding: 1.5rem 1.75rem;
+  border-bottom: 3px solid #0a0a0a;
+}
+
+.modal-header h2 {
+  margin: 0;
+  font-size: 1rem;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.modal-body {
+  padding: 2rem 1.75rem;
+}
+
+.clarification-question {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  color: #0a0a0a;
+  line-height: 1.5;
+}
+
+.clarification-context {
+  font-size: 0.875rem;
+  color: #666;
+  margin-bottom: 1.5rem;
+  font-style: italic;
+  line-height: 1.5;
+}
+
+.clarification-context:empty {
+  display: none;
+}
+
+.clarification-input {
+  width: 100%;
+  min-height: 100px;
+  padding: 1rem;
+  border: 3px solid #0a0a0a;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 1rem;
+  resize: vertical;
+  background: #ffffff;
+  color: #0a0a0a;
+  line-height: 1.5;
+}
+
+.clarification-input:focus {
+  outline: none;
+  box-shadow: 4px 4px 0 0 #0a0a0a;
+}
+
+.clarification-input::placeholder {
+  color: #999;
+}
+
+.modal-footer {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0 1.75rem 1.75rem 1.75rem;
+}
+
+.modal-footer button {
+  flex: 1;
+  padding: 1rem 1.5rem;
+  border: 3px solid #0a0a0a;
+  background: #fafafa;
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700;
+  font-size: 0.875rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-submit {
+  background: #0a0a0a !important;
+  color: #fafafa !important;
+}
+
+.btn-submit:hover:not(:disabled) {
+  transform: translate(-2px, -2px);
+  box-shadow: 4px 4px 0 0 #0a0a0a;
+}
+
+.btn-cancel:hover:not(:disabled) {
+  transform: translate(-2px, -2px);
+  box-shadow: 4px 4px 0 0 #0a0a0a;
+}
+
+.modal-footer button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

@@ -139,7 +139,12 @@ class CSVEditor {
               const parsed = JSON.parse(data);
 
               // Handle different event types
-              if (parsed.type === 'tool_use') {
+              if (parsed.type === 'clarification_needed') {
+                // Claude needs clarification - show modal
+                await this.showClarificationModal(parsed.question, parsed.why_asking, parsed.conversation_state);
+                // Modal will handle resumption - exit stream processing
+                return;
+              } else if (parsed.type === 'tool_use') {
                 // Claude is using a tool
                 this.updateStatus(`${parsed.command === 'view' ? 'Viewing' : 'Editing'} content...`);
                 this.highlightTextarea('editing');
@@ -478,6 +483,192 @@ class CSVEditor {
   showError(message) {
     this.elements.error.textContent = message;
     this.elements.error.classList.remove('hidden');
+  }
+
+  /**
+   * Show clarification modal when Claude needs more information
+   */
+  showClarificationModal(question, whyAsking, conversationState) {
+    return new Promise((resolve) => {
+      const modal = document.getElementById('clarification-modal');
+      const questionEl = modal.querySelector('.clarification-question');
+      const contextEl = modal.querySelector('.clarification-context');
+      const inputEl = modal.querySelector('.clarification-input');
+      const submitBtn = modal.querySelector('.btn-submit');
+      const cancelBtn = modal.querySelector('.btn-cancel');
+
+      // Set content
+      questionEl.textContent = question;
+      contextEl.textContent = whyAsking || '';
+      inputEl.value = '';
+
+      // Show modal
+      modal.style.display = 'flex';
+      setTimeout(() => inputEl.focus(), 100);
+
+      // Handle submit
+      const handleSubmit = async () => {
+        const answer = inputEl.value.trim();
+        if (!answer) return;
+
+        // Disable buttons during submission
+        submitBtn.disabled = true;
+        cancelBtn.disabled = true;
+        submitBtn.textContent = 'SUBMITTING...';
+
+        // Hide modal
+        modal.style.display = 'none';
+
+        // Resume conversation with answer
+        await this.resumeWithClarification(conversationState, answer);
+
+        // Cleanup
+        cleanup();
+        resolve();
+      };
+
+      // Handle cancel
+      const handleCancel = () => {
+        modal.style.display = 'none';
+        cleanup();
+        resolve();
+      };
+
+      // Handle escape key
+      const handleEscape = (e) => {
+        if (e.key === 'Escape') handleCancel();
+      };
+
+      // Handle enter key in textarea (Ctrl+Enter to submit)
+      const handleEnter = (e) => {
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+          e.preventDefault();
+          handleSubmit();
+        }
+      };
+
+      // Cleanup function
+      const cleanup = () => {
+        submitBtn.disabled = false;
+        cancelBtn.disabled = false;
+        submitBtn.textContent = 'SUBMIT';
+        submitBtn.removeEventListener('click', handleSubmit);
+        cancelBtn.removeEventListener('click', handleCancel);
+        document.removeEventListener('keydown', handleEscape);
+        inputEl.removeEventListener('keydown', handleEnter);
+      };
+
+      // Attach event listeners
+      submitBtn.addEventListener('click', handleSubmit);
+      cancelBtn.addEventListener('click', handleCancel);
+      document.addEventListener('keydown', handleEscape);
+      inputEl.addEventListener('keydown', handleEnter);
+    });
+  }
+
+  /**
+   * Resume conversation after receiving clarification from user
+   */
+  async resumeWithClarification(conversationState, clarificationAnswer) {
+    // Re-enable streaming UI
+    this.isStreaming = true;
+    this.elements.generateBtn.disabled = true;
+    this.elements.stopBtn.classList.remove('hidden');
+    this.elements.streamingStatus.classList.remove('hidden');
+    this.elements.textArea.disabled = true;
+    this.updateStatus('Resuming with your answer...');
+
+    this.abortController = new AbortController();
+    let assistantResponse = '';
+
+    try {
+      const response = await fetch(this.workerEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contentType: 'csv',
+          conversation_state: conversationState,
+          clarification_answer: clarificationAnswer,
+          // Send a dummy message to satisfy the worker's requirement
+          messages: [{ role: 'user', content: 'Resume' }]
+        }),
+        signal: this.abortController.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`API request failed: ${response.statusText}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data === '[DONE]') continue;
+
+            try {
+              const parsed = JSON.parse(data);
+
+              // Handle events (same as generate)
+              if (parsed.type === 'clarification_needed') {
+                // Nested clarification (Claude asks another question)
+                await this.showClarificationModal(parsed.question, parsed.why_asking, parsed.conversation_state);
+                return;
+              } else if (parsed.type === 'tool_use') {
+                this.updateStatus(`${parsed.command === 'view' ? 'Viewing' : 'Editing'} content...`);
+                this.highlightTextarea('editing');
+              } else if (parsed.type === 'content_update') {
+                await this.visualizeEdit(parsed.content, parsed.edit);
+              } else if (parsed.type === 'tool_result') {
+                if (parsed.success) {
+                  this.updateStatus(parsed.message || 'Edit applied');
+                } else {
+                  this.showError(`Edit failed: ${parsed.message}`);
+                }
+              } else if (parsed.type === 'text') {
+                assistantResponse += parsed.text;
+                this.updateStatus(parsed.text);
+              } else if (parsed.error) {
+                this.showError(parsed.error);
+              }
+            } catch (e) {
+              console.warn('Failed to parse SSE data:', e);
+            }
+          }
+        }
+      }
+
+      // Add assistant response to conversation history
+      if (assistantResponse) {
+        this.conversationHistory.push({
+          role: 'assistant',
+          content: assistantResponse
+        });
+      }
+
+    } catch (error) {
+      if (error.name !== 'AbortError') {
+        console.error('Resume error:', error);
+        this.showError(`Error: ${error.message}`);
+      }
+    } finally {
+      this.isStreaming = false;
+      this.elements.generateBtn.disabled = false;
+      this.elements.stopBtn.classList.add('hidden');
+      this.elements.streamingStatus.classList.add('hidden');
+      this.elements.textArea.disabled = false;
+      this.updateButtonLabel();
+    }
   }
 }
 

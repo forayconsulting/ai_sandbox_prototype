@@ -47,6 +47,26 @@ const TEXT_EDITOR_TOOL = {
   }
 };
 
+// Ask user tool - allows Claude to request clarification when UTTERLY NECESSARY
+const ASK_USER_TOOL = {
+  name: "ask_user",
+  description: "Ask the user a clarifying question when you genuinely need more information to complete the edit. ONLY use this if the instruction is truly ambiguous and you cannot make a reasonable creative decision. Prefer autonomous creative edits when possible - only ask if UTTERLY NECESSARY.",
+  input_schema: {
+    type: "object",
+    properties: {
+      question: {
+        type: "string",
+        description: "A single, specific clarifying question (keep it concise - one sentence max)"
+      },
+      why_asking: {
+        type: "string",
+        description: "Brief explanation of why you need this information (helps the user understand the context)"
+      }
+    },
+    required: ["question"]
+  }
+};
+
 // Execute text editor tool command
 function executeEditorCommand(command, content) {
   const lines = content.split('\n');
@@ -207,7 +227,13 @@ export default {
     }
 
     try {
-      const { prompt, messages, contentType = 'csv' } = await request.json();
+      const {
+        prompt,
+        messages,
+        contentType = 'csv',
+        conversation_state,
+        clarification_answer
+      } = await request.json();
 
       // Support both single prompt (legacy) and messages array (new)
       let claudeMessages;
@@ -265,6 +291,22 @@ export default {
       const systemPrompts = {
         csv: `You are an expert CSV editor with access to a text editor tool. Your role is to make TARGETED, INCREMENTAL edits to CSV data.
 
+<creative_autonomy_philosophy>
+When given vague or creative instructions, you should MAKE AUTONOMOUS DECISIONS whenever possible:
+- ✅ "change the last line" → Pick a creative alternative autonomously
+- ✅ "make it better" → Apply best practices for CSV data
+- ✅ "improve the formatting" → Use your judgment to enhance clarity
+- ❌ "add the Q4 revenue" → Ask user (you don't have this specific data)
+- ❌ "change the price" when there are multiple prices → Ask which one
+
+ONLY use the 'ask_user' tool if:
+- The instruction requires specific data you don't have
+- There are multiple ambiguous options and the wrong choice could break things
+- The instruction contradicts existing content in unclear ways
+
+Prefer creative autonomy - the user wants to see you make meaningful edits!
+</creative_autonomy_philosophy>
+
 <editing_workflow>
 1. FIRST use the 'view' command to see the current content
 2. Identify the MINIMAL changes needed to fulfill the user's request
@@ -290,9 +332,25 @@ export default {
 - Escape internal quotes by doubling them ("")
 </csv_guidelines>
 
-Remember: View first, edit incrementally, summarize changes.`,
+Remember: View first, edit incrementally, be creative and decisive!`,
 
         markdown: `You are an expert Markdown editor with access to a text editor tool. Your role is to make TARGETED, INCREMENTAL edits to Markdown content.
+
+<creative_autonomy_philosophy>
+When given vague or creative instructions, you should MAKE AUTONOMOUS DECISIONS whenever possible:
+- ✅ "change the last line" → Pick a creative alternative autonomously
+- ✅ "make it better" → Apply best practices for Markdown writing
+- ✅ "improve the tone" → Use your judgment to enhance readability
+- ❌ "add the meeting details" → Ask user (you don't have this specific info)
+- ❌ "change the link" when there are multiple links → Ask which one
+
+ONLY use the 'ask_user' tool if:
+- The instruction requires specific information you don't have
+- There are multiple ambiguous options and the wrong choice could break things
+- The instruction contradicts existing content in unclear ways
+
+Prefer creative autonomy - the user wants to see you make meaningful edits!
+</creative_autonomy_philosophy>
 
 <editing_workflow>
 1. FIRST use the 'view' command to see the current content
@@ -319,7 +377,7 @@ Remember: View first, edit incrementally, summarize changes.`,
 - Maintain consistent formatting throughout
 </markdown_guidelines>
 
-Remember: View first, edit incrementally, summarize changes.`,
+Remember: View first, edit incrementally, be creative and decisive!`,
       };
 
       const systemPrompt = systemPrompts[contentType] || systemPrompts.csv;
@@ -425,48 +483,81 @@ Remember: View first, edit incrementally, summarize changes.`,
         // UPDATE MODE: Use tool use loop for incremental editing
         (async () => {
           try {
-            // Find the LAST user message (most recent) which contains the actual content
-            const userMessages = claudeMessages.filter(m => m.role === 'user' && m.content);
-            const lastUserMessage = userMessages[userMessages.length - 1]?.content || '';
-
-            // Extract the actual content and instruction from the last message
             let currentContent = '';
-            let instruction = '';
+            let conversationMessages = [];
 
-            if (typeof lastUserMessage === 'string') {
-              const parts = lastUserMessage.split('\n\nInstruction: ');
-              if (parts.length === 2) {
-                currentContent = parts[0].replace('Current content:\n', '').trim();
-                instruction = parts[1].trim();
-              } else {
-                // Fallback if format is different
-                currentContent = lastUserMessage;
-                instruction = 'Edit as requested';
+            // Check if we're resuming from a clarification
+            if (conversation_state && clarification_answer) {
+              // RESUMING from clarification
+              console.log('Resuming conversation after clarification');
+
+              currentContent = conversation_state.content;
+              conversationMessages = conversation_state.messages || [];
+
+              // Add the assistant's message with the ask_user tool call
+              conversationMessages.push({
+                role: 'assistant',
+                content: conversation_state.assistant_message
+              });
+
+              // Add the user's answer as a tool result
+              conversationMessages.push({
+                role: 'user',
+                content: [{
+                  type: 'tool_result',
+                  tool_use_id: conversation_state.tool_use_id,
+                  content: JSON.stringify({
+                    success: true,
+                    answer: clarification_answer,
+                    message: `User provided clarification: "${clarification_answer}"`
+                  })
+                }]
+              });
+            } else {
+              // STARTING new edit session
+              // Find the LAST user message (most recent) which contains the actual content
+              const userMessages = claudeMessages.filter(m => m.role === 'user' && m.content);
+              const lastUserMessage = userMessages[userMessages.length - 1]?.content || '';
+
+              // Extract the actual content and instruction from the last message
+              let instruction = '';
+
+              if (typeof lastUserMessage === 'string') {
+                const parts = lastUserMessage.split('\n\nInstruction: ');
+                if (parts.length === 2) {
+                  currentContent = parts[0].replace('Current content:\n', '').trim();
+                  instruction = parts[1].trim();
+                } else {
+                  // Fallback if format is different
+                  currentContent = lastUserMessage;
+                  instruction = 'Edit as requested';
+                }
+              } else if (Array.isArray(lastUserMessage)) {
+                // Extract from content array format
+                const texts = lastUserMessage
+                  .filter(c => c.type === 'text')
+                  .map(c => c.text)
+                  .join('\n');
+                const parts = texts.split('\n\nInstruction: ');
+                if (parts.length === 2) {
+                  currentContent = parts[0].replace('Current content:\n', '').trim();
+                  instruction = parts[1].trim();
+                }
               }
-            } else if (Array.isArray(lastUserMessage)) {
-              // Extract from content array format
-              const texts = lastUserMessage
-                .filter(c => c.type === 'text')
-                .map(c => c.text)
-                .join('\n');
-              const parts = texts.split('\n\nInstruction: ');
-              if (parts.length === 2) {
-                currentContent = parts[0].replace('Current content:\n', '').trim();
-                instruction = parts[1].trim();
-              }
+
+              // Create a FRESH conversation for editing (no history!)
+              // Don't provide content upfront - let Claude view it using tools
+              conversationMessages = [{
+                role: 'user',
+                content: instruction
+              }];
             }
-
-            // Create a FRESH conversation for editing (no history!)
-            // Don't provide content upfront - let Claude view it using tools
-            let conversationMessages = [{
-              role: 'user',
-              content: instruction
-            }];
 
             let toolUseLoop = true;
             let iterationCount = 0;
             const MAX_ITERATIONS = 10; // Safety limit to prevent infinite loops
-            let firstIteration = true;
+            // When resuming, we're NOT on first iteration (already did ask_user)
+            let firstIteration = !(conversation_state && clarification_answer);
 
           while (toolUseLoop && iterationCount < MAX_ITERATIONS) {
             iterationCount++;
@@ -485,7 +576,7 @@ Remember: View first, edit incrementally, summarize changes.`,
                 temperature: 0.7,
                 system: systemPrompt,
                 messages: conversationMessages,
-                tools: [TEXT_EDITOR_TOOL],
+                tools: [TEXT_EDITOR_TOOL, ASK_USER_TOOL],
                 // Force tool use ONLY on first iteration, then let Claude decide when to stop
                 tool_choice: firstIteration ? { type: "any" } : { type: "auto" }
               }),
@@ -512,6 +603,27 @@ Remember: View first, edit incrementally, summarize changes.`,
               const toolUseBlock = result.content.find(block => block.type === 'tool_use');
 
               if (toolUseBlock) {
+                // Check if this is an ask_user tool call
+                if (toolUseBlock.name === 'ask_user') {
+                  // Send clarification request to frontend
+                  await writer.write(encoder.encode(`data: ${JSON.stringify({
+                    type: 'clarification_needed',
+                    question: toolUseBlock.input.question,
+                    why_asking: toolUseBlock.input.why_asking || '',
+                    conversation_state: {
+                      messages: conversationMessages,
+                      content: currentContent,
+                      tool_use_id: toolUseBlock.id,
+                      assistant_message: result.content
+                    }
+                  })}\n\n`));
+
+                  // Send DONE to close stream - frontend will reopen with answer
+                  await writer.write(encoder.encode('data: [DONE]\n\n'));
+                  await writer.close();
+                  return; // Exit the tool loop - will resume when user responds
+                }
+
                 // Send tool use notification to frontend
                 await writer.write(encoder.encode(`data: ${JSON.stringify({
                   type: 'tool_use',
@@ -520,7 +632,7 @@ Remember: View first, edit incrementally, summarize changes.`,
                   status: 'executing'
                 })}\n\n`));
 
-                // Execute the tool
+                // Execute the editor tool
                 const toolResult = executeEditorCommand(toolUseBlock.input, currentContent);
 
                 // Update current content if edit was successful
@@ -535,12 +647,14 @@ Remember: View first, edit incrementally, summarize changes.`,
                   })}\n\n`));
                 }
 
-                // Send tool result notification
-                await writer.write(encoder.encode(`data: ${JSON.stringify({
-                  type: 'tool_result',
-                  success: toolResult.success,
-                  message: toolResult.message || toolResult.error
-                })}\n\n`));
+                // Only send tool_result event for actual edit commands (not view)
+                if (toolUseBlock.input.command !== 'view') {
+                  await writer.write(encoder.encode(`data: ${JSON.stringify({
+                    type: 'tool_result',
+                    success: toolResult.success,
+                    message: toolResult.message || toolResult.error
+                  })}\n\n`));
+                }
 
                 // Add assistant message and tool result to conversation
                 conversationMessages.push({
